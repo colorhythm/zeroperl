@@ -1,7 +1,5 @@
 zeroperl is an experimental build of Perl5 in a sandboxed, self-contained WebAssembly module.
 
-Read the full blog [here](https://andrews.substack.com/p/zeroperl-sandboxed-perl-with-webassembly)
-
 ## Build
 
 Requires Docker or Apple Container (macOS).
@@ -72,10 +70,10 @@ container build --target final -t zeroperl .
 The easiest way to test a new build of `zeroperl.wasm` is to clone the TypeScript wrapper and run its test suite:
 
 ```bash
-git clone https://github.com/6over3/zeroperl-ts
+git clone https://github.com/colorhythm/zeroperl-ts
 ```
 
-See the [zeroperl-ts README](https://github.com/6over3/zeroperl-ts) for details.
+See the [zeroperl-ts README](https://github.com/colorhythm/zeroperl-ts) for details.
 
 ## Usage
 
