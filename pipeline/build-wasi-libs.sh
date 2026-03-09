@@ -11,7 +11,7 @@ AR="$WASI_SDK_PATH/bin/llvm-ar"
 RANLIB="$WASI_SDK_PATH/bin/llvm-ranlib"
 CFLAGS="--target=wasm32-wasi --sysroot=$SYSROOT -O3 -w"
 
-ZLIB_VERSION="${ZLIB_VERSION:-1.3.1}"
+ZLIB_VERSION="${ZLIB_VERSION:-1.3.2}"
 BZIP2_VERSION="${BZIP2_VERSION:-1.0.8}"
 
 WORK="/tmp/wasi-libs"
