@@ -1,0 +1,189 @@
+name: Check ExifTool Release
+
+# Run daily at 06:00 UTC, or manually
+on:
+    schedule:
+        - cron: "0 6 * * *"
+    workflow_dispatch:
+        inputs:
+            force_version:
+                description: "Force build for a specific ExifTool version (e.g. 13.52)"
+                required: false
+                type: string
+
+permissions:
+    contents: write
+
+jobs:
+    check-version:
+        runs-on: ubuntu-latest
+        outputs:
+            new_version: ${{ steps.check.outputs.new_version }}
+            should_build: ${{ steps.check.outputs.should_build }}
+        steps:
+            - name: Checkout zeroperl
+              uses: actions/checkout@v4
+
+            - name: Check for new ExifTool release
+              id: check
+              run: |
+                  # Get the latest ExifTool tag from GitHub
+                  LATEST=$(curl -s https://api.github.com/repos/exiftool/exiftool/tags?per_page=1 \
+                      | grep '"name"' | head -1 | sed 's/.*"name": "\(.*\)".*/\1/')
+
+                  # Get our current version from the Dockerfile default
+                  CURRENT=$(grep 'EXIFTOOL_VERSION=' Dockerfile \
+                      | grep 'ARG' | head -1 | sed 's/.*EXIFTOOL_VERSION=\([0-9.]*\).*/\1/')
+
+                  # Allow manual override
+                  FORCE="${{ github.event.inputs.force_version }}"
+                  if [ -n "$FORCE" ]; then
+                      LATEST="$FORCE"
+                  fi
+
+                  echo "Latest ExifTool: $LATEST"
+                  echo "Current build:   $CURRENT"
+
+                  if [ "$LATEST" != "$CURRENT" ] || [ -n "$FORCE" ]; then
+                      echo "New version detected — will build"
+                      echo "new_version=$LATEST" >> "$GITHUB_OUTPUT"
+                      echo "should_build=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "Already up to date"
+                      echo "should_build=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+    build:
+        needs: check-version
+        if: needs.check-version.outputs.should_build == 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout zeroperl
+              uses: actions/checkout@v4
+
+            - name: Update Dockerfile version
+              run: |
+                  VERSION="${{ needs.check-version.outputs.new_version }}"
+                  sed -i "s/ARG EXIFTOOL_VERSION=.*/ARG EXIFTOOL_VERSION=$VERSION/" Dockerfile
+                  echo "Updated Dockerfile to ExifTool $VERSION"
+
+            - name: Build zeroperl WASM
+              run: |
+                  VERSION="${{ needs.check-version.outputs.new_version }}"
+                  docker build \
+                      --build-arg EXIFTOOL_VERSION=$VERSION \
+                      -t colorhythm-zeroperl .
+
+            - name: Extract artifacts
+              run: |
+                  mkdir -p output
+                  docker run --rm \
+                      -v $(pwd)/output:/output \
+                      colorhythm-zeroperl \
+                      cp -r /artifacts/. /output/
+                  echo "Build artifacts:"
+                  ls -lh output/
+
+            - name: Upload WASM artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: zeroperl-wasm
+                  path: |
+                      output/zeroperl.wasm
+                      output/zeroperl_reactor.wasm
+                      output/exiftool.min.pl
+                  retention-days: 90
+
+            - name: Commit Dockerfile version bump
+              run: |
+                  VERSION="${{ needs.check-version.outputs.new_version }}"
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git add Dockerfile
+                  git commit -m "Bump ExifTool to $VERSION" || echo "No changes to commit"
+                  git push
+
+    update-zeroperl-ts:
+        needs: [check-version, build]
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout zeroperl-ts
+              uses: actions/checkout@v4
+              with:
+                  repository: colorhythm/zeroperl-ts
+                  token: ${{ secrets.COLORHYTHM_PAT }}
+
+            - name: Download WASM artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: zeroperl-wasm
+                  path: artifacts
+
+            - name: Update zeroperl.wasm
+              run: |
+                  cp artifacts/zeroperl.wasm ./zeroperl.wasm
+                  echo "Updated zeroperl.wasm ($(wc -c < zeroperl.wasm) bytes)"
+
+            - name: Install dependencies and test
+              uses: oven-sh/setup-bun@v2
+            - run: bun install
+            - run: bun test
+
+            - name: Commit and push
+              run: |
+                  VERSION="${{ needs.check-version.outputs.new_version }}"
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git add zeroperl.wasm
+                  git commit -m "Update zeroperl.wasm for ExifTool $VERSION" || echo "No changes"
+                  git push
+
+    update-exiftool:
+        needs: [check-version, build]
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout exiftool
+              uses: actions/checkout@v4
+              with:
+                  repository: colorhythm/exiftool
+                  token: ${{ secrets.COLORHYTHM_PAT }}
+
+            - name: Download WASM artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: zeroperl-wasm
+                  path: artifacts
+
+            - name: Update exiftool entry script
+              run: |
+                  cp artifacts/exiftool.min.pl ./src/exiftool
+                  echo "Updated src/exiftool ($(wc -c < src/exiftool) bytes)"
+
+            - name: Install dependencies and test
+              uses: oven-sh/setup-bun@v2
+
+            - name: Build zeroperl-ts dependency
+              run: |
+                  # Clone and build zeroperl-ts for local linking
+                  git clone https://github.com/colorhythm/zeroperl-ts.git /tmp/zeroperl-ts
+                  cp artifacts/zeroperl.wasm /tmp/zeroperl-ts/zeroperl.wasm
+                  cd /tmp/zeroperl-ts
+                  bun install
+                  bun run build
+
+            - name: Install and test exiftool
+              run: |
+                  # Point dependency at the freshly built local copy
+                  npm pkg set dependencies.@colorhythm/zeroperl-ts="file:/tmp/zeroperl-ts"
+                  bun install
+                  bun test
+
+            - name: Commit and push
+              run: |
+                  VERSION="${{ needs.check-version.outputs.new_version }}"
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git checkout -- package.json  # Revert the local file: path hack
+                  git add src/exiftool
+                  git commit -m "Update ExifTool to $VERSION" || echo "No changes"
+                  git push
