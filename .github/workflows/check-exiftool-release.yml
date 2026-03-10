@@ -145,7 +145,7 @@ jobs:
             - name: Checkout exiftool
               uses: actions/checkout@v4
               with:
-                  repository: colorhythm/exiftool
+                  repository: colorhythm/exiftool-wasm
                   token: ${{ secrets.COLORHYTHM_PAT }}
 
             - name: Download WASM artifacts
