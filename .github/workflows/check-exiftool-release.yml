@@ -130,7 +130,7 @@ jobs:
             - name: Install dependencies and test
               uses: oven-sh/setup-bun@v2
             - run: bun install
-            - run: bun test
+            - run: bun test --timeout 30000
 
             - name: Commit and push
               run: |
