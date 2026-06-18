@@ -27,18 +27,20 @@ jobs:
             - name: Check for new ExifTool release
               id: check
               run: |
-                  # Get the latest ExifTool tag from GitHub
                   LATEST=$(curl -s https://api.github.com/repos/exiftool/exiftool/tags?per_page=1 \
                       | grep '"name"' | head -1 | sed 's/.*"name": "\(.*\)".*/\1/')
 
-                  # Get our current version from the Dockerfile default
                   CURRENT=$(grep 'EXIFTOOL_VERSION=' Dockerfile \
                       | grep 'ARG' | head -1 | sed 's/.*EXIFTOOL_VERSION=\([0-9.]*\).*/\1/')
 
-                  # Allow manual override
                   FORCE="${{ github.event.inputs.force_version }}"
                   if [ -n "$FORCE" ]; then
                       LATEST="$FORCE"
+                  fi
+
+                  if ! echo "$LATEST" | grep -qE '^[0-9]+\.[0-9]+$'; then
+                      echo "Could not determine a valid ExifTool version (got '$LATEST'); aborting."
+                      exit 1
                   fi
 
                   echo "Latest ExifTool: $LATEST"
@@ -143,7 +145,7 @@ jobs:
         needs: [check-version, build]
         runs-on: ubuntu-latest
         steps:
-            - name: Checkout exiftool
+            - name: Checkout exiftool-wasm
               uses: actions/checkout@v4
               with:
                   repository: colorhythm/exiftool-wasm
@@ -155,36 +157,25 @@ jobs:
                   name: zeroperl-wasm
                   path: artifacts
 
-            - name: Update exiftool entry script
+            - name: Drop in fresh artifacts
               run: |
                   cp artifacts/exiftool.min.pl ./src/exiftool
-                  echo "Updated src/exiftool ($(wc -c < src/exiftool) bytes)"
+                  cp artifacts/zeroperl.wasm ./src/zeroperl/zeroperl.wasm
+                  echo "src/exiftool: $(wc -c < src/exiftool) bytes"
+                  echo "src/zeroperl/zeroperl.wasm: $(wc -c < src/zeroperl/zeroperl.wasm) bytes"
 
-            - name: Install dependencies and test
-              uses: oven-sh/setup-bun@v2
+            - uses: oven-sh/setup-bun@v2
 
-            - name: Build zeroperl-ts dependency
+            - name: Install, build, test
               run: |
-                  # Clone and build zeroperl-ts for local linking
-                  git clone https://github.com/colorhythm/zeroperl-ts.git /tmp/zeroperl-ts
-                  cp artifacts/zeroperl.wasm /tmp/zeroperl-ts/zeroperl.wasm
-                  cd /tmp/zeroperl-ts
                   bun install
-                  bun run build
-
-            - name: Install and test exiftool
-              run: |
-                  # Point dependency at the freshly built local copy
-                  npm pkg set dependencies.@colorhythm/zeroperl-ts="file:/tmp/zeroperl-ts"
-                  bun install
-                  bun test
+                  bun run test
 
             - name: Commit and push
               run: |
                   VERSION="${{ needs.check-version.outputs.new_version }}"
                   git config user.name "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"
-                  git checkout -- package.json  # Revert the local file: path hack
-                  git add src/exiftool
+                  git add src/exiftool src/zeroperl/zeroperl.wasm
                   git commit -m "Update ExifTool to $VERSION" || echo "No changes"
                   git push
