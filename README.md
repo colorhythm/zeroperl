@@ -1,3 +1,10 @@
+> **Fork notice & thanks** — this is Colorhythm's fork of
+> [**zeroperl** by Andrew Sampson (6over3)](https://github.com/6over3/zeroperl).
+> The remarkable feat of putting a sandboxed Perl 5 in a self-contained
+> WebAssembly module is entirely his; our changes are small build and
+> integration adjustments for the `@colorhythm/exiftool-wasm` toolchain.
+> Thank you, Andrew.
+
 zeroperl is an experimental build of Perl5 in a sandboxed, self-contained WebAssembly module.
 
 ## Build
