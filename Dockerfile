@@ -46,20 +46,31 @@ RUN mkdir -p /zeroperl && chmod 777 /zeroperl
 FROM base AS native-perl
 
 ARG PERL_VERSION=5.42.0
-ARG EXIFTOOL_VERSION=13.59
-ARG BUILD_EXIFTOOL=true
 
 ENV PERL_VERSION=${PERL_VERSION} \
-    EXIFTOOL_VERSION=${EXIFTOOL_VERSION} \
-    BUILD_EXIFTOOL=${BUILD_EXIFTOOL} \
     NATIVE_DIR=/build/native \
     REPO_DIR=/build/repo
 
-COPY pipeline/build-native-perl.sh pipeline/build-exiftool.sh /build/repo/pipeline/
-RUN chmod +x /build/repo/pipeline/*.sh
+COPY pipeline/build-native-perl.sh /build/repo/pipeline/
+RUN chmod +x /build/repo/pipeline/build-native-perl.sh
 
 RUN /build/repo/pipeline/build-native-perl.sh
-RUN [ "${BUILD_EXIFTOOL}" = "true" ] && /build/repo/pipeline/build-exiftool.sh || true
+
+ARG BUILD_EXIFTOOL=true
+ARG EXIFTOOL_SHA256=c8e3c42576f46d862e4cd9c192989776e7363931e890c95056bcd6293e83ea36
+ARG EXIFTOOL_VERSION=13.60
+
+ENV BUILD_EXIFTOOL=${BUILD_EXIFTOOL} \
+    EXIFTOOL_SHA256=${EXIFTOOL_SHA256} \
+    EXIFTOOL_VERSION=${EXIFTOOL_VERSION}
+
+COPY pipeline/build-exiftool.sh /build/repo/pipeline/
+RUN chmod +x /build/repo/pipeline/build-exiftool.sh && \
+    if [ "${BUILD_EXIFTOOL}" = "true" ]; then \
+        /build/repo/pipeline/build-exiftool.sh; \
+    elif [ "${BUILD_EXIFTOOL}" != "false" ]; then \
+        echo "BUILD_EXIFTOOL must be true or false" >&2; exit 1; \
+    fi
 
 
 FROM native-perl AS wasi-perl
@@ -106,10 +117,16 @@ COPY stubs/ /build/repo/stubs/
 RUN /build/repo/pipeline/build-wasm.sh
 
 RUN mkdir -p /artifacts && \
+    test -s /build/wasm/config.h && \
+    test -s /build/wasm/zeroperl.wasm && \
+    test -s /build/wasm/zeroperl_reactor.wasm && \
     cp /build/wasm/config.h /build/wasm/zeroperl.wasm /build/wasm/zeroperl_reactor.wasm /artifacts/ && \
-    cp -r /zeroperl /artifacts/perl-wasi-prefix && \
-    [ "${BUILD_EXIFTOOL}" = "true" ] && [ -f /build/repo/exiftool.min.pl ] && \
-        cp /build/repo/exiftool.min.pl /artifacts/ || true
+    cp -r /zeroperl /artifacts/perl-wasi-prefix
+
+RUN if [ "${BUILD_EXIFTOOL}" = "true" ]; then \
+        test -s /build/repo/exiftool.min.pl && \
+        cp /build/repo/exiftool.min.pl /artifacts/; \
+    fi
 
 
 FROM debian:trixie-slim

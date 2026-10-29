@@ -49,7 +49,8 @@ container build --build-arg PERL_VERSION=5.42.0 --build-arg BUILD_EXIFTOOL=false
 | Arg | Default | |
 |-----|---------|--|
 | `PERL_VERSION` | `5.42.0` | Perl source version |
-| `EXIFTOOL_VERSION` | `13.42` | ExifTool version |
+| `EXIFTOOL_VERSION` | `13.60` | ExifTool version |
+| `EXIFTOOL_SHA256` | `c8e3c42576f46d862e4cd9c192989776e7363931e890c95056bcd6293e83ea36` | Official source archive SHA-256; must match the selected version |
 | `BUILD_EXIFTOOL` | `true` | Include ExifTool |
 | `STACK_SIZE` | `8388608` | WASM stack (bytes) |
 | `INITIAL_MEMORY` | `33554432` | WASM initial memory (bytes) |
@@ -57,6 +58,20 @@ container build --build-arg PERL_VERSION=5.42.0 --build-arg BUILD_EXIFTOOL=false
 | `TRIM` | `true` | Strip unused modules |
 
 </details>
+
+ExifTool builds verify the source archive against the supplied SHA-256, check the
+CLI and module version, and run the upstream native test suite before installing.
+Use the digest in [Phil Harvey's checksum file](https://exiftool.org/checksums.txt)
+when overriding the version. A missing source, failed test, or missing artifact
+fails the build. The trimmed prefix retains ExifTool's character-set tables;
+removing them silently loses metadata such as MacRoman QuickTime text.
+
+Release orchestration belongs to
+[exiftool-wasm](https://github.com/colorhythm/exiftool-wasm). It builds this repo
+at a recorded commit and tests the paired CLI/WASM artifacts through the actual
+package before publishing. The manual `zeroperl` workflow only builds artifacts.
+The former cross-repository updater has been replaced by a manual dispatch to
+that validated release pipeline.
 
 ### Iterating on stubs/zeroperl.c
 
