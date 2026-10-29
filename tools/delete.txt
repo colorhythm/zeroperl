@@ -1266,4 +1266,3 @@ lib/{VERSION}/wasm32-wasi/Image/ExifTool.pod
 lib/{VERSION}/wasm32-wasi/Image/ExifTool/TagNames.pod
 lib/{VERSION}/wasm32-wasi/Image/ExifTool/MIEUnits.pod
 lib/{VERSION}/wasm32-wasi/Image/ExifTool/Lang
-lib/{VERSION}/wasm32-wasi/Image/ExifTool/Charset

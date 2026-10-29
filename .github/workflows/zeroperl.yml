@@ -1,84 +1,124 @@
 name: zeroperl
 
 on:
-  workflow_dispatch:
-    inputs:
-      perl-version:
-        description: "Perl version to build"
-        required: false
-        default: "5.42.0"
-      exiftool-version:
-        description: "Version of ExifTool to build"
-        required: false
-        default: "13.42"
-      build-exiftool:
-        description: "Whether to build ExifTool"
-        required: false
-        type: boolean
-        default: true
-      stack-size:
-        description: "WASM stack size (in bytes)"
-        required: false
-        default: "8388608"
-      initial-memory:
-        description: "WASM initial memory (in bytes)"
-        required: false
-        default: "33554432"
-      trim:
-        description: "Trim the prefix"
-        required: false
-        type: boolean
-        default: true
-      asyncify:
-        description: "Asyncify imports"
-        required: false
-        type: boolean
-        default: true
+    workflow_dispatch:
+        inputs:
+            asyncify:
+                description: "Asyncify imports"
+                required: false
+                type: boolean
+                default: true
+            build-exiftool:
+                description: "Whether to build ExifTool"
+                required: false
+                type: boolean
+                default: true
+            exiftool-sha256:
+                description: "Published SHA-256 of the selected ExifTool source archive"
+                required: false
+                type: string
+                default: "c8e3c42576f46d862e4cd9c192989776e7363931e890c95056bcd6293e83ea36"
+            exiftool-version:
+                description: "Version of ExifTool to build"
+                required: false
+                type: string
+                default: "13.60"
+            initial-memory:
+                description: "WASM initial memory (in bytes)"
+                required: false
+                default: "33554432"
+            perl-version:
+                description: "Perl version to build"
+                required: false
+                default: "5.42.0"
+            stack-size:
+                description: "WASM stack size (in bytes)"
+                required: false
+                default: "8388608"
+            trim:
+                description: "Trim the prefix"
+                required: false
+                type: boolean
+                default: true
+
+permissions:
+    contents: read
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+    build:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 45
+        env:
+            ASYNCIFY: ${{ inputs.asyncify }}
+            BUILD_EXIFTOOL: ${{ inputs.build-exiftool }}
+            EXIFTOOL_SHA256: ${{ inputs.exiftool-sha256 }}
+            EXIFTOOL_VERSION: ${{ inputs.exiftool-version }}
+            INITIAL_MEMORY: ${{ inputs.initial-memory }}
+            PERL_VERSION: ${{ inputs.perl-version }}
+            STACK_SIZE: ${{ inputs.stack-size }}
+            TRIM: ${{ inputs.trim }}
+        steps:
+            -   name: Check out code
+                uses: actions/checkout@v4
 
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
+            -   name: Validate build inputs
+                shell: bash
+                run: |
+                    [[ "$PERL_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+                    [[ "$INITIAL_MEMORY" =~ ^[1-9][0-9]*$ ]]
+                    [[ "$STACK_SIZE" =~ ^[1-9][0-9]*$ ]]
+                    if [[ "$BUILD_EXIFTOOL" == true ]]; then
+                        [[ "$EXIFTOOL_VERSION" =~ ^[0-9]+\.[0-9]+$ ]]
+                        [[ "$EXIFTOOL_SHA256" =~ ^[0-9a-f]{64}$ ]]
+                    fi
 
-      - name: Build zeroperl
-        run: |
-          docker build \
-            --build-arg PERL_VERSION=${{ inputs.perl-version }} \
-            --build-arg EXIFTOOL_VERSION=${{ inputs.exiftool-version }} \
-            --build-arg BUILD_EXIFTOOL=${{ inputs.build-exiftool }} \
-            --build-arg STACK_SIZE=${{ inputs.stack-size }} \
-            --build-arg INITIAL_MEMORY=${{ inputs.initial-memory }} \
-            --build-arg TRIM=${{ inputs.trim }} \
-            --build-arg ASYNCIFY=${{ inputs.asyncify }} \
-            -t zeroperl:latest .
+            -   name: Build zeroperl
+                run: |
+                    docker build \
+                        --build-arg "PERL_VERSION=$PERL_VERSION" \
+                        --build-arg "EXIFTOOL_VERSION=$EXIFTOOL_VERSION" \
+                        --build-arg "EXIFTOOL_SHA256=$EXIFTOOL_SHA256" \
+                        --build-arg "BUILD_EXIFTOOL=$BUILD_EXIFTOOL" \
+                        --build-arg "STACK_SIZE=$STACK_SIZE" \
+                        --build-arg "INITIAL_MEMORY=$INITIAL_MEMORY" \
+                        --build-arg "TRIM=$TRIM" \
+                        --build-arg "ASYNCIFY=$ASYNCIFY" \
+                        -t zeroperl:latest .
 
-      - name: Extract artifacts
-        run: |
-          mkdir -p output
-          docker run --rm -v $PWD/output:/output zeroperl:latest cp -r /artifacts/. /output/
-          ls -la output/
+            -   name: Extract and check artifacts
+                run: |
+                    mkdir -p output
+                    docker run --rm -v "$PWD/output:/output" zeroperl:latest cp -r /artifacts/. /output/
+                    test -s output/zeroperl.wasm
+                    test -s output/zeroperl_reactor.wasm
+                    test -s output/config.h
+                    test -d output/perl-wasi-prefix
+                    if [ "$BUILD_EXIFTOOL" = true ]; then
+                        test -s output/exiftool.min.pl
+                    fi
+                    ls -la output/
 
-      - name: Upload WASM artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: zeroperl-wasm
-          path: |
-            output/zeroperl.wasm
-            output/zeroperl_reactor.wasm
-            output/config.h
+            -   name: Upload WASM artifacts
+                uses: actions/upload-artifact@v4
+                with:
+                    if-no-files-found: error
+                    name: zeroperl-wasm
+                    path: |
+                        output/zeroperl.wasm
+                        output/zeroperl_reactor.wasm
+                        output/config.h
 
-      - name: Upload Perl prefix
-        uses: actions/upload-artifact@v4
-        with:
-          name: perl-wasi-prefix
-          path: output/perl-wasi-prefix
+            -   name: Upload Perl prefix
+                uses: actions/upload-artifact@v4
+                with:
+                    if-no-files-found: error
+                    name: perl-wasi-prefix
+                    path: output/perl-wasi-prefix
 
-      - name: Upload ExifTool
-        if: ${{ inputs.build-exiftool == true }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: exiftool-stripped
-          path: output/exiftool.min.pl
+            -   name: Upload ExifTool
+                if: ${{ inputs.build-exiftool == true }}
+                uses: actions/upload-artifact@v4
+                with:
+                    if-no-files-found: error
+                    name: exiftool-stripped
+                    path: output/exiftool.min.pl
